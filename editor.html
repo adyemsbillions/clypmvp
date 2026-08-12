@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link id="clyp-core-fonts" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=5.1.0">
+  <link rel="stylesheet" href="styles.css?v=5.2.0">
 </head>
 <body class="editor-body">
   <header class="editor-topbar">
@@ -28,7 +28,15 @@
     <div class="top-actions">
       <button class="button ghost small mobile-props-btn" id="mobilePropsBtn" type="button">Properties</button>
       <button class="button ghost small" id="saveBtn" type="button">Save</button>
-      <button class="button small" id="exportBtn" type="button">Export PNG</button>
+      <div class="export-control" id="exportControl">
+        <button class="button small" id="exportBtn" type="button">Export PNG</button>
+        <button class="button small export-chevron" id="exportMoreBtn" type="button" aria-label="More export options" aria-expanded="false">⌄</button>
+        <div class="export-menu" id="exportMenu" hidden>
+          <button type="button" data-export="png"><strong>PNG</strong><span>Best for social & graphics</span></button>
+          <button type="button" data-export="jpg"><strong>JPG</strong><span>Smaller photographic file</span></button>
+          <button type="button" data-export="json"><strong>Project JSON</strong><span>Editable Clyp backup</span></button>
+        </div>
+      </div>
     </div>
   </header>
 
@@ -99,7 +107,7 @@
   <input type="file" id="localImageInput" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden>
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-  <script src="js/bootstrap.js?v=5.1.0"></script>
-  <script src="js/editor.js?v=5.1.0"></script>
+  <script src="js/bootstrap.js?v=5.2.0"></script>
+  <script src="js/editor.js?v=5.2.0"></script>
 </body>
 </html>

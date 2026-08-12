@@ -12,7 +12,7 @@ for raw in (ROOT / '.env').read_text(encoding='utf-8').splitlines() if (ROOT / '
         k, v = line.split('=', 1)
         os.environ.setdefault(k.strip(), v.strip().strip('"\''))
 
-print('Clyp Design Studio V5.1 diagnostics')
+print('Clyp Design Studio V5.2 diagnostics')
 print('Python:', 'OK')
 print('Flask:', 'OK' if importlib.util.find_spec('flask') else 'MISSING')
 print('google-genai:', 'OK' if importlib.util.find_spec('google.genai') else 'MISSING')

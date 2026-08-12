@@ -122,7 +122,7 @@ A normal professional flyer should usually contain 12-28 purposeful editable lay
 Use visual layers to create depth and structure, not filler: hero image or image frame when appropriate; readability overlay; restrained atmospheric light; accent rule/bar; frame/rail; one consistent motif; information icons; CTA/detail grouping; controlled pattern or corner geometry when the category supports it.
 If imagery is genuinely useful, include at most ONE generated hero image layer in the first direction. Give it a precise asset_prompt AND concise stock_query so Clyp can fall back to licensed stock imagery when image-generation quota is unavailable. Compose text/shapes around it. Do not ask the image model to render flyer typography, event details, logo or CTA.
 Use image treatment fields intentionally; a photo should look integrated rather than pasted on.
-Use icon layers for practical information such as time, date, location, phone, web/social or one meaningful decorative symbol. Do not scatter icons randomly.
+Use icon layers for practical information such as time, date, location, phone, web/social or one meaningful decorative symbol. Do not scatter icons randomly. Never create two calendar icons for one date, two clock icons for one time block, or duplicate location/contact icons for the same information group.
 For line shapes, h is thickness. For polygon shapes, x/y/w/h define the editable box.
 """
 
@@ -488,11 +488,12 @@ def design_density_summary(design: dict[str, Any]) -> dict[str, Any]:
     return {"layers": len(layers), "text": len(text), "visuals": len(visuals), "images": len(images), "icons": len(icons)}
 
 
-def design_is_sparse(design: dict[str, Any], brief: str) -> bool:
+def design_is_sparse(design: dict[str, Any], brief: str, density: str = "standard") -> bool:
     d = design_density_summary(design)
-    if _brief_is_explicitly_minimal(brief):
+    if _brief_is_explicitly_minimal(brief) or density == "minimal":
         return d["layers"] < 6 or d["text"] < 2 or d["visuals"] < 2
-    return d["layers"] < MIN_FIRST_PASS_LAYERS or d["text"] < 2 or d["visuals"] < 6
+    target_layers, target_visuals = density_targets(density)
+    return d["layers"] < max(MIN_FIRST_PASS_LAYERS if density == "standard" else target_layers, target_layers) or d["text"] < 2 or d["visuals"] < target_visuals
 
 
 def infer_design_category(brief: str) -> str:
@@ -505,6 +506,7 @@ def infer_design_category(brief: str) -> str:
         ("real-estate", ("real estate", "property", "apartment", "house", "open house", "land", "realtor")),
         ("technology", ("technology", "tech", "software", "saas", "developer", "app", "product launch")),
         ("music", ("music", "concert", "nightlife", "dj", "party", "festival", "album")),
+        ("education", ("education", "school", "university", "student", "students", "training", "academy", "course", "learning")),
         ("corporate", ("corporate", "business", "seminar", "workshop", "company", "conference", "hiring")),
     ]
     for name, tokens in groups:
@@ -519,13 +521,94 @@ def category_blueprint(category: str) -> str:
         "food": "Appetising hero crop; warm controlled grade; clear product/offer hierarchy; compact price/CTA module; supporting shapes only where they frame the food or offer.",
         "beauty": "Editorial portrait/product crop; soft light; refined type pairing; generous but shaped negative space; delicate rule/frame; concise CTA; avoid busy patterns.",
         "real-estate": "Property-led hero; trustworthy typography; location/facts module; clear price/CTA; refined frame/overlay; no decorative clutter.",
-        "technology": "Crisp grid; modern typography; precise geometry; restrained luminous depth; one strong accent; information modules aligned to a clear axis.",
+        "technology": "Do not default to a text-only black card. Use a relevant tech visual anchor unless imagery is explicitly disabled: professionals networking, speaker/stage, modern workspace, devices, abstract digital/network illustration, or a hybrid. Pair it with precise geometry, grid/node/line motifs, restrained luminous depth, one strong accent, and a structured information module. Keep the visual contemporary and specific to the event rather than generic sci-fi decoration.",
         "music": "Live performance/crowd hero; controlled dark field; dramatic light; strong event title; date/time/venue grouped; avoid illegible chaos.",
-        "corporate": "Grid-led composition; restrained image or architecture/people crop; premium whitespace; one accent; clear date/speaker/venue module; minimal effects.",
+        "corporate": "Grid-led composition; restrained architecture/people crop when imagery is enabled; premium whitespace; one accent; clear date/speaker/venue module; minimal effects.",
         "sale": "Product/offer leads; clear discount/price; product image integrated; energetic accent; CTA obvious; no random burst clutter.",
+        "education": "Approachable but professional visual system; students/learning illustration or photo when imagery is enabled; confident hierarchy; grouped date/venue/CTA; avoid childish decoration unless the audience requires it.",
         "general": "Choose one clear hook; establish a real visual anchor; group related facts; build a complete but restrained visual system; no independent text overlaps.",
     }.get(category, "Choose one clear hook; build a complete visual system; group related facts; no independent text overlaps.")
 
+
+def normalise_generation_preferences(raw: Any, brief: str) -> dict[str, Any]:
+    src = raw if isinstance(raw, dict) else {}
+    allowed_category = {"auto","technology","worship","corporate","education","beauty","food","real-estate","music","sale","general"}
+    category = str(src.get("category") or "auto").lower()
+    if category not in allowed_category:
+        category = "auto"
+    if category == "auto":
+        category = infer_design_category(brief)
+
+    mood = str(src.get("visual_mood") or "auto").lower()
+    if mood not in {"auto","bright","dark","balanced","soft"}: mood = "auto"
+    colour = str(src.get("colour_style") or "auto").lower()
+    if colour not in {"auto","bold","premium","clean","corporate"}: colour = "auto"
+    imagery = str(src.get("imagery_mode") or "auto").lower()
+    if imagery not in {"auto","photo","illustration","both","none"}: imagery = "auto"
+    subject = str(src.get("image_subject") or "auto").lower()
+    if subject not in {"auto","people","objects","abstract","mixed"}: subject = "auto"
+    density = str(src.get("design_density") or "standard").lower()
+    if density not in {"minimal","standard","rich"}: density = "standard"
+    enhancements = bool(src.get("professional_enhancements", True))
+
+    # Explicit words in the brief are stronger than an automatic default, but an
+    # explicit UI choice of "none" always wins.
+    lower = (brief or "").lower()
+    if imagery == "auto":
+        if "illustration" in lower or "illustrated" in lower:
+            imagery = "illustration"
+        elif brief_requests_imagery(brief):
+            imagery = "photo"
+        else:
+            imagery = {
+                "technology":"both", "worship":"photo", "beauty":"photo", "food":"photo",
+                "real-estate":"photo", "music":"photo", "education":"both", "sale":"photo",
+                "corporate":"photo", "general":"none"
+            }.get(category, "none")
+    if subject == "auto":
+        subject = {
+            "technology":"mixed", "worship":"people", "beauty":"people", "food":"objects",
+            "real-estate":"objects", "music":"people", "education":"people", "sale":"objects",
+            "corporate":"people", "general":"mixed"
+        }.get(category, "mixed")
+    if mood == "auto":
+        mood = {"technology":"dark","worship":"dark","beauty":"balanced","food":"bright","real-estate":"balanced","music":"dark","education":"bright","sale":"bright","corporate":"balanced"}.get(category,"balanced")
+    if colour == "auto":
+        colour = {"technology":"bold","worship":"premium","beauty":"premium","food":"bold","real-estate":"premium","music":"bold","education":"clean","sale":"bold","corporate":"corporate"}.get(category,"clean")
+
+    return {
+        "category": category,
+        "visual_mood": mood,
+        "imagery_mode": imagery,
+        "image_subject": subject,
+        "colour_style": colour,
+        "design_density": density,
+        "professional_enhancements": enhancements,
+    }
+
+
+def preference_art_direction(prefs: dict[str, Any]) -> str:
+    density = prefs.get("design_density", "standard")
+    density_text = {
+        "minimal":"Use a deliberately minimal system, roughly 6-12 purposeful layers; premium whitespace must still feel composed, not unfinished.",
+        "standard":"Use a complete standard system, roughly 12-22 purposeful layers with a clear visual anchor and grouped information.",
+        "rich":"Use a rich but controlled system, roughly 18-32 purposeful layers with depth, hierarchy, grouping and supporting visual rhythm; do not add meaningless filler.",
+    }[density]
+    imagery = prefs.get("imagery_mode")
+    imagery_text = {
+        "none":"Do NOT create an image layer. Compensate with excellent typography, geometry, colour, pattern and composition.",
+        "photo":"A relevant real-photo hero is required. Keep it as a separate image layer and integrate it with crop, grade, fade/overlay and text-safe space.",
+        "illustration":"A relevant professional illustration is required as a separate image layer. Avoid generic clip-art; art-direct it like a campaign visual with useful copy space.",
+        "both":"Use one strong hero visual plus editable supporting illustration/tech/graphic motifs. Do not flatten the whole design into one image.",
+    }.get(imagery, "Let the category decide whether a visual asset is useful.")
+    mood_text = {"bright":"Use a bright/light overall field with strong readable dark type and controlled saturated accents.","dark":"Use a dark/deep field with luminous but restrained highlights and excellent contrast.","balanced":"Balance light and dark masses; avoid an all-black or all-white default.","soft":"Use softer contrast, muted tonal transitions and gentle depth while preserving readability."}.get(prefs.get("visual_mood"),"")
+    colour_text = {"bold":"Use a confident, professional high-energy palette; saturate the accent, not every surface.","premium":"Use a refined restrained palette with elegant contrast and deliberate accent use.","clean":"Use a clean modern palette with limited hues and generous neutral support.","corporate":"Use a restrained trustworthy palette with one controlled accent and minimal colour noise."}.get(prefs.get("colour_style"),"")
+    enhancement = "Professional enhancements are ON: add purposeful editable overlays, gradients, frames, rules, lights, motifs or badges only where they improve communication." if prefs.get("professional_enhancements") else "Professional enhancements are OFF: keep effects restrained and do not add decorative glow/pattern/extra geometry beyond what is structurally necessary."
+    return f"{density_text} {imagery_text} Image subject preference: {prefs.get('image_subject')}. {mood_text} {colour_text} {enhancement}"
+
+
+def density_targets(density: str) -> tuple[int, int]:
+    return {"minimal":(6,2), "standard":(12,6), "rich":(18,9)}.get(density,(12,6))
 
 def _compact_design_for_review(design: dict[str, Any]) -> dict[str, Any]:
     compact = json.loads(json.dumps(design))
@@ -538,18 +621,21 @@ def _compact_design_for_review(design: dict[str, Any]) -> dict[str, Any]:
     return compact
 
 
-def polish_sparse_design(design: dict[str, Any], brief: str, fmt: str) -> tuple[dict[str, Any], str | None]:
-    if not AUTO_POLISH_SPARSE or not design_is_sparse(design, brief):
+def polish_sparse_design(design: dict[str, Any], brief: str, fmt: str, preferences: dict[str, Any] | None = None) -> tuple[dict[str, Any], str | None]:
+    preferences = preferences or {}
+    density = str(preferences.get("design_density") or "standard")
+    if not AUTO_POLISH_SPARSE or not design_is_sparse(design, brief, density):
         return design, None
     current = _compact_design_for_review(design)
     prompt = f"""<context>
 User brief: {brief}
 Current editable Clyp design JSON: {json.dumps(current, separators=(',', ':'))}
+Requested generation preferences: {json.dumps(preferences, separators=(',', ':'))}
 </context>
 <task>
 The first direction is too visually sparse. Return a stronger FULL revised design, not a list of suggestions.
 Preserve every factual word, date, time, price, venue, phone, URL and name already present. Preserve any image layer/asset_prompt.
-Build a deliberate professional composition with approximately 12-28 purposeful layers unless the user explicitly requested minimalist typography-only work.
+Respect the requested design density. Minimal: about 6-12 purposeful layers. Standard: about 12-22. Rich: about 18-32. Build a deliberate professional composition rather than mechanically chasing a quota.
 Add meaningful visual structure where appropriate: readability overlay, frame/rail, accent rule, information grouping, one repeated motif, restrained glow/gradient, practical icon(s), badge/pill, corner geometry or subtle pattern. Do not add meaningless filler.
 Keep one strong focal point, excellent spacing, no edge collisions, no low-contrast small copy, and normally no more than two font families.
 Use Clyp's richer shape/icon vocabulary. Return the complete design JSON.
@@ -564,9 +650,13 @@ Use Clyp's richer shape/icon vocabulary. Return the complete design JSON.
     return design, None
 
 
-def enrich_sparse_design(design: dict[str, Any], brief: str) -> tuple[dict[str, Any], list[str]]:
+def enrich_sparse_design(design: dict[str, Any], brief: str, preferences: dict[str, Any] | None = None) -> tuple[dict[str, Any], list[str]]:
     """Deterministic final quality guard. Adds only editable, non-factual visual structure."""
-    if not design_is_sparse(design, brief):
+    preferences = preferences or {}
+    density = str(preferences.get("design_density") or "standard")
+    if not preferences.get("professional_enhancements", True):
+        return design, []
+    if not design_is_sparse(design, brief, density):
         return design, []
     layers = design.setdefault("layers", [])
     canvas = design.get("canvas") or {}
@@ -576,7 +666,7 @@ def enrich_sparse_design(design: dict[str, Any], brief: str) -> tuple[dict[str, 
     accent = safe_hex(pal.get("accent"), "#F4C95D")
     light = safe_hex(pal.get("light"), "#FFFFFF")
     dark = safe_hex(pal.get("dark"), "#111111")
-    category = infer_design_category(brief)
+    category = str(preferences.get("category") or infer_design_category(brief))
     names = {str(l.get("name") or "").lower() for l in layers if isinstance(l, dict)}
     first_text = next((i for i,l in enumerate(layers) if isinstance(l,dict) and l.get("type")=="text"), len(layers))
     has_image = any(isinstance(l,dict) and l.get("type")=="image" for l in layers)
@@ -585,7 +675,8 @@ def enrich_sparse_design(design: dict[str, Any], brief: str) -> tuple[dict[str, 
 
     def add(layer: dict[str, Any], position: int | None = None):
         nonlocal visual_count
-        if visual_count >= 9 and len(layers) + len(additions) >= MIN_FIRST_PASS_LAYERS:
+        target_layers, target_visuals = density_targets(density)
+        if visual_count >= target_visuals and len(layers) + len(additions) >= target_layers:
             return
         lname = str(layer.get("name") or "").lower()
         if lname in names:
@@ -638,7 +729,7 @@ def enrich_sparse_design(design: dict[str, Any], brief: str) -> tuple[dict[str, 
         {"type":"shape","name":"Secondary rhythm rule","kind":"line","fill":"solid","x":round(w*.74),"y":round(h*.11),"w":round(w*.16),"h":2,"color":light,"opacity":0.35,"rotation":0},
     ]
     for candidate in completion_candidates:
-        if len(layers) + len(additions) >= MIN_FIRST_PASS_LAYERS:
+        if len(layers) + len(additions) >= density_targets(density)[0]:
             break
         add(candidate, first_text)
 
@@ -653,18 +744,20 @@ def enrich_sparse_design(design: dict[str, Any], brief: str) -> tuple[dict[str, 
 
 
 
-def ensure_semantic_finishing(design: dict[str, Any], brief: str) -> tuple[dict[str, Any], list[str]]:
+def ensure_semantic_finishing(design: dict[str, Any], brief: str, preferences: dict[str, Any] | None = None) -> tuple[dict[str, Any], list[str]]:
     """Add communication-driven finishing roles even when the model already hit a layer quota.
 
     Density alone is not quality. This pass adds only semantic grouping/icons and category
     atmosphere that can be justified by supplied copy; it never invents facts.
     """
+    preferences = preferences or {}
+    enhancements = bool(preferences.get("professional_enhancements", True))
     layers=design.setdefault("layers",[])
     canvas=design.get("canvas") or {}
     w=int(canvas.get("width") or 432); h=int(canvas.get("height") or 540)
     pal=design.get("palette") or {}
     accent=safe_hex(pal.get("accent"),"#F0B429"); light=safe_hex(pal.get("light"),"#FFF4E6"); dark=safe_hex(pal.get("dark"),"#120302")
-    category=infer_design_category(brief)
+    category=str(preferences.get("category") or infer_design_category(brief))
     names={str(l.get("name") or "").lower() for l in layers if isinstance(l,dict)}
     text_layers=[l for l in layers if isinstance(l,dict) and l.get("type")=="text"]
     first_text=next((i for i,l in enumerate(layers) if isinstance(l,dict) and l.get("type")=="text"),len(layers))
@@ -676,11 +769,18 @@ def ensure_semantic_finishing(design: dict[str, Any], brief: str) -> tuple[dict[
         names.add(lname);additions.append((front,layer))
 
     has_image=any(isinstance(l,dict) and l.get("type")=="image" and (l.get("src") or l.get("asset")) for l in layers)
-    if has_image and not any("readability" in n or "copy fade" in n for n in names):
+    if enhancements and has_image and not any("readability" in n or "copy fade" in n for n in names):
         copy_side=dominant_text_side(design)
         add({"type":"shape","name":"Copy readability fade","kind":"rect","fill":"linear","x":0,"y":0,"w":w,"h":h,"color":dark,"color2":dark,"gradient_angle":90 if copy_side=="left" else 270,"opacity":0.36,"rotation":0})
-    if category in {"worship","music"} and not any("stage glow" in n or "warm atmosphere" in n for n in names):
+    if enhancements and category in {"worship","music"} and not any("stage glow" in n or "warm atmosphere" in n for n in names):
         add({"type":"shape","name":"Warm stage glow","kind":"ellipse","fill":"radial","x":round(w*.55),"y":-70,"w":round(w*.62),"h":round(w*.62),"color":"#FFB14A","color2":dark,"opacity":0.22,"rotation":0,"shadow_color":"#FF9E3D","shadow_opacity":0.28,"shadow_blur":90})
+    if enhancements and category == "technology":
+        if not any("tech grid" in n or "digital grid" in n for n in names):
+            add({"type":"shape","name":"Tech grid motif","kind":"pattern-grid","fill":"solid","x":round(w*.62),"y":round(h*.07),"w":round(w*.34),"h":round(h*.30),"color":accent,"opacity":0.14,"rotation":0})
+        if not any("tech glow" in n or "digital glow" in n for n in names):
+            add({"type":"shape","name":"Tech edge glow","kind":"ellipse","fill":"radial","x":round(w*.66),"y":round(h*.06),"w":round(w*.38),"h":round(w*.38),"color":accent,"color2":dark,"opacity":0.18,"rotation":0,"shadow_color":accent,"shadow_opacity":0.22,"shadow_blur":72})
+        if not any("tech signal" in n or "network line" in n for n in names):
+            add({"type":"shape","name":"Tech signal line","kind":"line","fill":"solid","x":round(w*.70),"y":round(h*.40),"w":round(w*.20),"h":2,"color":accent,"opacity":0.70,"rotation":-18})
 
     def find_text(predicate):
         return next((l for l in text_layers if predicate(str(l.get("name") or "").lower(),str(l.get("text") or "").lower())),None)
@@ -688,16 +788,18 @@ def ensure_semantic_finishing(design: dict[str, Any], brief: str) -> tuple[dict[
     time_l=find_text(lambda n,t:"time" in n or bool(re.search(r"\b\d{1,2}(?::\d{2})?\s*(?:am|pm)\b",t,re.I)))
     venue_l=find_text(lambda n,t:"venue" in n or "location" in n or any(k in t for k in ("lagos","abuja","enugu","centre","center","road","street")))
     phone_l=find_text(lambda n,t:"contact" in n or "phone" in n or bool(re.search(r"(?:\+?234|0)\d[\d\s-]{7,}",t)))
+    existing_icon_types={str(l.get("icon") or "") for l in layers if isinstance(l,dict) and l.get("type")=="icon"}
     icon_specs=[("Date detail icon","calendar",date_l),("Time detail icon","clock",time_l),("Venue detail icon","map-pin",venue_l),("Contact detail icon","phone",phone_l)]
     for name,icon,target in icon_specs:
-        if not target or any(name.lower() in n for n in names):continue
+        if not target or icon in existing_icon_types or any(name.lower() in n for n in names):continue
+        existing_icon_types.add(icon)
         tx=int(target.get("x") or 36);ty=int(target.get("y") or 36)
         if tx>=38:
             add({"type":"icon","name":name,"icon":icon,"x":max(18,tx-22),"y":ty+1,"w":14,"h":14,"color":accent,"opacity":1,"rotation":0},front=True)
 
     # Group CTA/contact into a final intentional footer unit when both are present.
     cta=find_text(lambda n,t:"cta" in n or any(k in t for k in ("come ","book now","register","shop now","learn more","join us","get started","leave transformed")))
-    if cta and phone_l and not any("cta footer" in n or "contact footer" in n for n in names):
+    if enhancements and cta and phone_l and not any("cta footer" in n or "contact footer" in n for n in names):
         group=[cta,phone_l]
         gx=max(18,min(int(l.get("x") or 0) for l in group)-12); gy=max(18,min(int(l.get("y") or 0) for l in group)-8)
         gr=min(w-18,max(int(l.get("x") or 0)+int(l.get("w") or 0) for l in group)+12)
@@ -714,6 +816,30 @@ def ensure_semantic_finishing(design: dict[str, Any], brief: str) -> tuple[dict[
     if additions:warnings.append(f"Clyp added {len(additions)} semantic finishing layers for information grouping, readability and art direction.")
     return design,warnings
 
+
+
+def dedupe_semantic_icons(design: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
+    """Remove accidental duplicate metadata icons created by model + finishing passes."""
+    layers=design.get("layers") or []
+    semantic={"calendar":"date","clock":"time","map-pin":"venue","phone":"phone","mail":"mail","globe":"web"}
+    seen: dict[str,int]={}
+    kept=[];removed=0
+    for layer in layers:
+        if not isinstance(layer,dict) or layer.get("type")!="icon":
+            kept.append(layer);continue
+        kind=str(layer.get("icon") or "")
+        role=semantic.get(kind)
+        if not role:
+            kept.append(layer);continue
+        # One practical date/time/location/contact/web marker is enough for a normal
+        # flyer. The AI may still use unrelated decorative icons freely.
+        if role in seen:
+            removed+=1;continue
+        seen[role]=1;kept.append(layer)
+    if removed:
+        design["layers"]=kept
+        return design,[f"Clyp removed {removed} duplicate information icon{'s' if removed != 1 else ''}."]
+    return design,[]
 
 def _estimated_text_height(layer: dict[str, Any]) -> int:
     text=str(layer.get("text") or "")
@@ -955,7 +1081,7 @@ def _stock_query_variants(query: str, brief: str = "") -> list[str]:
     elif category == "real-estate":
         variants += ["modern luxury house exterior", "modern apartment interior", "real estate property home"]
     elif category == "technology":
-        variants += ["technology office people", "software team modern office", "technology abstract workspace"]
+        variants += ["technology conference professionals networking", "innovation summit speaker audience", "software team modern office", "digital technology illustration"]
     elif category == "music":
         variants += ["concert audience stage lights", "music performance crowd", "live concert people stage"]
     elif category == "corporate":
@@ -995,9 +1121,10 @@ def _stock_relevance_score(item: dict[str, Any], desired_text: str, category: st
         "food": ("food","restaurant","meal","dish","plate","chef","cuisine"),
         "beauty": ("beauty","portrait","skin","skincare","model","face","fashion"),
         "real-estate": ("house","home","property","apartment","interior","architecture"),
-        "technology": ("technology","computer","office","software","team","digital"),
+        "technology": ("technology","innovation","conference","summit","computer","office","software","team","digital","people","speaker","network","device"),
         "music": ("concert","music","crowd","stage","audience","performance"),
         "corporate": ("business","office","conference","professional","meeting","speaker"),
+        "education": ("students","student","education","learning","university","school","classroom","campus"),
     }.get(category, ())
     score += sum(2.1 for t in rewards if t in hay)
     if category in {"worship","music","corporate"}:
@@ -1022,7 +1149,7 @@ def _fetch_candidate_thumbnail(item: dict[str, Any]) -> tuple[bytes, str] | None
     url=str(item.get("thumbnail") or item.get("url") or "").strip()
     if not url.startswith(("http://","https://")):
         return None
-    req=urllib.request.Request(url, headers={"Accept":"image/*","User-Agent":"Clyp-Design-Studio/5.1"})
+    req=urllib.request.Request(url, headers={"Accept":"image/*","User-Agent":"Clyp-Design-Studio/5.2"})
     try:
         with urllib.request.urlopen(req, timeout=8) as response:
             mime=response.headers.get_content_type() or "image/jpeg"
@@ -1100,7 +1227,7 @@ def search_openverse_asset(query: str, brief: str = "", design: dict[str, Any] |
     seen=set(); candidates=[]
     for q in _stock_query_variants(query,brief):
         params=urllib.parse.urlencode({"q":q,"page_size":24})
-        req=urllib.request.Request(f"{OPENVERSE}?{params}",headers={"Accept":"application/json","User-Agent":"Clyp-Design-Studio/5.1"})
+        req=urllib.request.Request(f"{OPENVERSE}?{params}",headers={"Accept":"application/json","User-Agent":"Clyp-Design-Studio/5.2"})
         try:
             with urllib.request.urlopen(req,timeout=12) as response:
                 data=json.loads(response.read().decode("utf-8"))
@@ -1258,23 +1385,51 @@ def dominant_text_side(design: dict[str, Any]) -> str:
     return "center"
 
 
-def build_fallback_asset_prompt(brief: str, design: dict[str, Any]) -> str:
+def build_fallback_asset_prompt(brief: str, design: dict[str, Any], preferences: dict[str, Any] | None = None) -> str:
+    preferences = preferences or {}
     palette = design.get("palette") or {}
     copy_side = dominant_text_side(design)
     subject_side = "right" if copy_side == "left" else "left" if copy_side == "right" else "center/right"
     dark = palette.get("dark") or design.get("canvas", {}).get("bg") or "#17100f"
     accent = palette.get("accent") or "#d6a62a"
     dominant = palette.get("dominant") or dark
+    mode = str(preferences.get("imagery_mode") or "photo")
+    subject = str(preferences.get("image_subject") or "mixed")
+    if mode == "illustration":
+        medium = "Create a sophisticated editorial/digital illustration, not clip-art and not a photograph."
+    else:
+        medium = "Create believable professional campaign photography with natural people/material detail."
+    tech = " For a technology design, show an unmistakably modern technology/innovation context rather than a generic portrait: professionals collaborating, speaker/stage, devices/workspace, or an abstract digital-network environment." if preferences.get("category") == "technology" else ""
     return (
-        f"Create the hero visual required by this design brief: {brief}. "
-        f"This is a visual asset only, never a finished flyer. Place the main subject toward the {subject_side} "
-        f"and preserve useful negative space on the {copy_side} for editable typography. "
+        f"Create the hero visual required by this design brief: {brief}. {medium} "
+        f"Preferred subject type: {subject}. This is a visual asset only, never a finished flyer. "
+        f"Place the main subject toward the {subject_side} and preserve useful negative space on the {copy_side} for editable typography. "
         f"Art-direct the scene around a sophisticated palette related to {dominant}, {dark}, and accent {accent}. "
-        "Use believable professional lighting, depth, foreground/background separation, natural skin/material detail, "
-        "controlled highlights and shadows, and a premium campaign-photography finish. "
-        "No words, no captions, no logo, no poster layout, no decorative text, no UI."
+        "Use professional lighting, depth, foreground/background separation, controlled highlights and shadows, and a premium campaign finish. "
+        f"{tech} No words, no captions, no logo, no poster layout, no decorative text, no UI."
     )
 
+
+def stock_query_for_preferences(brief: str, preferences: dict[str, Any]) -> str:
+    category=str(preferences.get("category") or infer_design_category(brief))
+    subject=str(preferences.get("image_subject") or "mixed")
+    mode=str(preferences.get("imagery_mode") or "photo")
+    base={
+        "technology":"technology innovation conference professionals",
+        "worship":"church worship congregation people stage",
+        "beauty":"editorial beauty model skincare",
+        "food":"restaurant food plated meal",
+        "real-estate":"modern property architecture interior",
+        "music":"concert crowd stage lights",
+        "corporate":"business conference professionals",
+        "education":"students education learning campus",
+        "sale":"product retail promotion",
+    }.get(category,_compact_stock_query(brief))
+    if subject == "people" and "people" not in base: base += " people"
+    if subject == "abstract": base = f"{category} abstract digital visual"
+    if subject == "objects": base += " product object"
+    if mode == "illustration": base += " illustration"
+    return re.sub(r"\s+"," ",base).strip()[:120]
 
 def _apply_stock_to_layer(layer: dict[str, Any], query: str, brief: str = "", design: dict[str, Any] | None = None) -> dict[str, Any] | None:
     asset = search_openverse_asset(query, brief=brief, design=design)
@@ -1285,67 +1440,62 @@ def _apply_stock_to_layer(layer: dict[str, Any], query: str, brief: str = "", de
     return asset
 
 
-def ensure_required_hero_image(design: dict[str, Any], brief: str) -> tuple[bool, list[str]]:
-    """Guarantee useful imagery without allowing image quota to block the whole design.
-
-    Priority: Gemini image -> openly licensed online image -> styled placeholder layer.
-    """
-    required = brief_requests_imagery(brief)
+def ensure_required_hero_image(design: dict[str, Any], brief: str, preferences: dict[str, Any] | None = None) -> tuple[bool, list[str]]:
+    """Guarantee the requested visual strategy without letting image quota block design."""
+    preferences = preferences or normalise_generation_preferences({}, brief)
+    mode=str(preferences.get("imagery_mode") or "none")
+    required = mode != "none"
     warnings: list[str] = []
     image_layers = [l for l in design.get("layers", []) if isinstance(l, dict) and l.get("type") == "image"]
 
+    # User explicitly chose no imagery: remove image layers from the AI first pass.
+    if not required:
+        if image_layers:
+            design["layers"]=[l for l in design.get("layers",[]) if not (isinstance(l,dict) and l.get("type")=="image")]
+            warnings.append("Imagery was disabled in Design Preferences, so Clyp removed the generated image layer.")
+        return False, warnings
+
     if image_layers:
+        for l in image_layers:
+            if not l.get("asset_prompt"):
+                l["asset_prompt"]=build_fallback_asset_prompt(brief,design,preferences)
+            if not l.get("stock_query"):
+                l["stock_query"]=stock_query_for_preferences(brief,preferences)
         warnings.extend(hydrate_generated_assets(design, max_assets=1))
         hydrated = [l for l in image_layers if l.get("asset") or l.get("src")]
         if hydrated:
-            return required, warnings
+            return True, warnings
         target = image_layers[0]
-        query = str(target.get("stock_query") or target.get("asset_prompt") or brief)
-        stock = _apply_stock_to_layer(target, query, brief=brief, design=design)
+        query = str(target.get("stock_query") or stock_query_for_preferences(brief,preferences))
+        stock = _apply_stock_to_layer(target, query, brief=f"{brief}. Requested visual mode: {mode}; subject: {preferences.get('image_subject')}", design=design)
         if stock:
-            warnings.append(
-                "AI image quota was unavailable, so Clyp continued with an openly licensed Openverse image. Attribution is retained on the image layer."
-            )
-            return required, warnings
-        if required:
-            target.update({
-                "source_kind": "placeholder", "src": "", "fit": "cover",
-                "brightness": 1, "contrast": 1, "saturation": 1,
-                "name": "Add hero image", "placeholder": True,
-            })
-            warnings.append("Clyp could not reach an AI or online image source. The layout is preserved; add a local image from the Images panel.")
-        return required, warnings
-
-    if not required:
-        return False, []
+            warnings.append("AI image quota was unavailable, so Clyp continued with a relevant openly licensed Openverse visual. Attribution is retained on the image layer.")
+            return True, warnings
+        target.update({"source_kind":"placeholder","src":"","fit":"cover","brightness":1,"contrast":1,"saturation":1,"name":"Add hero visual","placeholder":True})
+        warnings.append("Clyp could not reach an AI or suitable online visual source. The art-directed layout is preserved; replace the hero placeholder from Images.")
+        return True, warnings
 
     canvas = design.get("canvas") or {}
     width = max(128, int(canvas.get("width") or 432))
     height = max(128, int(canvas.get("height") or 540))
-    prompt = build_fallback_asset_prompt(brief, design)
+    prompt = build_fallback_asset_prompt(brief, design, preferences)
     hero = {
-        "type": "image", "name": "Hero image", "x": 0, "y": 0, "w": width, "h": height,
-        "opacity": 1, "rotation": 0, "source_kind": "ai", "asset_prompt": prompt,
-        "stock_query": _compact_stock_query(brief), "fit": "cover", "blend_mode": "normal", "mask": "none",
-        "brightness": .74, "contrast": 1.12, "saturation": 1.06, "blur": 0,
-        "focal_x": 68 if dominant_text_side(design) == "left" else 32 if dominant_text_side(design) == "right" else 55,
-        "focal_y": 50, "radius": "0"
+        "type":"image","name":"Hero illustration" if mode=="illustration" else "Hero image","x":0,"y":0,"w":width,"h":height,
+        "opacity":1,"rotation":0,"source_kind":"ai","asset_prompt":prompt,
+        "stock_query":stock_query_for_preferences(brief,preferences),"fit":"cover","blend_mode":"normal","mask":"none",
+        "brightness":.78 if preferences.get("visual_mood")=="dark" else .94,"contrast":1.10,"saturation":1.05,"blur":0,
+        "focal_x":68 if dominant_text_side(design)=="left" else 32 if dominant_text_side(design)=="right" else 55,
+        "focal_y":50,"radius":"0"
     }
     try:
         hero["src"] = generate_image_asset(prompt, width, height)
-    except Exception as exc:
-        stock = _apply_stock_to_layer(hero, hero["stock_query"], brief=brief, design=design)
+    except Exception:
+        stock = _apply_stock_to_layer(hero, hero["stock_query"], brief=f"{brief}. Requested visual mode: {mode}; subject: {preferences.get('image_subject')}", design=design)
         if stock:
-            warnings.append(
-                "AI image generation is unavailable for the current Gemini quota, so Clyp automatically used an openly licensed Openverse image and retained its attribution."
-            )
+            warnings.append("AI image generation is unavailable for the current Gemini quota, so Clyp automatically used a relevant Openverse visual and retained its attribution.")
         else:
-            hero["source_kind"] = "placeholder"
-            hero["placeholder"] = True
-            hero["src"] = ""
-            warnings.append(
-                "AI image generation is unavailable and no suitable online image was reachable. Clyp kept the composition and inserted an image placeholder; use Images → Upload or Online to replace it."
-            )
+            hero["source_kind"]="placeholder";hero["placeholder"]=True;hero["src"]=""
+            warnings.append("AI image generation is unavailable and no suitable online visual was reachable. Clyp kept a category-aware image placeholder; use Images → Upload, AI Image, or Online to replace it.")
     design.setdefault("layers", []).insert(0, hero)
     return True, warnings
 
@@ -1400,50 +1550,54 @@ def generate():
         if not brief:
             return jsonify({"ok": False, "message": "Brief is required"}), 422
         width, height, canonical = canvas_for_format(fmt)
-        category = infer_design_category(brief)
+        preferences = normalise_generation_preferences(data.get("preferences"), brief)
+        category = str(preferences.get("category") or infer_design_category(brief))
         blueprint = category_blueprint(category)
+        art_direction = preference_art_direction(preferences)
         prompt = f"""<context>
 User brief: {brief}
 Working canvas: {width} by {height} editor units.
 Intended export format: {canonical}.
-Detected category: {category}.
+Category: {category}.
 Category blueprint: {blueprint}
+User design preferences: {json.dumps(preferences, separators=(',', ':'))}
+Preference art direction: {art_direction}
 </context>
 <task>
-Create a complete, professionally art-directed editable flyer/poster. Infer the category and mood from the brief. Build the hierarchy, palette, typography and composition deliberately. If the user explicitly asks for a photograph, realistic image, people, a model, product photography, illustration, or another hero visual, you MUST include one image layer with a precise asset_prompt; imagery is not optional in that case. Use gradients/shapes/effects only when they perform a visual job. Unless the brief explicitly asks for minimalism, do not stop at a background plus a few text blocks: create enough structured visual anchors, information grouping, accents, icons and depth to make the flyer feel finished at thumbnail size. Use concise real copy inferred from the brief; if a critical fact such as date, price, time, venue, phone or URL was not supplied, use a neutral placeholder or omit it rather than inventing facts.
+Create a complete, professionally art-directed editable flyer/poster. Respect the user's preferences as hard constraints, especially imagery mode, visual mood and density.
+- If imagery_mode is photo, illustration or both, include ONE separate hero image layer with a precise asset_prompt and stock_query. The image must be relevant to the category and requested subject, not a generic object close-up.
+- If imagery_mode is none, create NO image layer.
+- For technology/event work with imagery enabled, do not return only text on a dark rectangle: introduce a specific tech visual anchor such as professionals networking, speaker/stage, modern workspace/devices, or a professional digital/network illustration; use editable tech geometry/motifs around it when enhancements are enabled.
+- If imagery_mode is both, use the hero asset plus editable supporting visual motifs; never flatten the whole flyer into an image.
+- Respect bright/dark/balanced/soft mood. Respect bold/premium/clean/corporate colour direction.
+- Respect density: minimal must feel intentionally sparse, standard must feel complete, rich must feel layered and art-directed without clutter.
+Build hierarchy, palette, typography and composition deliberately. Use gradients/shapes/effects only when they perform a visual job. Do not invent critical facts such as dates, prices, venue, phone or URL when not supplied.
 </task>
 <quality_gate>
-Before output, silently review the result at full size and thumbnail size for hierarchy, colour harmony, text contrast, margins, alignment, proximity, balance, readability and unnecessary decoration. Confirm that no two independent text layers overlap, CTA/contact have a dedicated final zone, and every line stays inside the safe canvas area.
+Before output, silently review at full size and thumbnail size for hierarchy, colour harmony, text contrast, margins, alignment, proximity, balance, readability, image relevance and unnecessary decoration. Confirm that no two independent text layers overlap, CTA/contact have a dedicated final zone, every line stays inside the safe canvas area, and practical information icons are not duplicated.
 </quality_gate>"""
-        raw = call_json(prompt, SYSTEM_DESIGNER, DESIGN_OUTPUT_RULES, temperature=0.45)
+        raw = call_json(prompt, SYSTEM_DESIGNER, DESIGN_OUTPUT_RULES, temperature=0.44)
         design = normalise_design(raw, fmt, allow_images=True)
 
-        # V5 quality gate: if the first pass is only a few text blocks, give the
-        # design model one focused refinement pass before the user ever sees it.
-        design, polish_note = polish_sparse_design(design, brief, fmt)
-
-        imagery_required, warnings = ensure_required_hero_image(design, brief)
+        design, polish_note = polish_sparse_design(design, brief, fmt, preferences)
+        imagery_required, warnings = ensure_required_hero_image(design, brief, preferences)
         if polish_note:
             warnings.append(polish_note)
 
-        # Final deterministic guard. This never invents factual copy: it can only
-        # add editable visual structure such as overlays, frames, rails, rules,
-        # glows, patterns and fact-matched icons.
-        design, density_warnings = enrich_sparse_design(design, brief)
+        design, density_warnings = enrich_sparse_design(design, brief, preferences)
         warnings.extend(density_warnings)
-
-        # Repair AI text geometry before decorative grouping is calculated. Footer
-        # surfaces/icons are therefore built around the final readable text positions,
-        # not around coordinates that are about to move.
         design, layout_warnings = repair_layout_geometry(design)
         warnings.extend(layout_warnings)
-        design, finishing_warnings = ensure_semantic_finishing(design, brief)
+        design, finishing_warnings = ensure_semantic_finishing(design, brief, preferences)
         warnings.extend(finishing_warnings)
+        design, icon_warnings = dedupe_semantic_icons(design)
+        warnings.extend(icon_warnings)
         design, final_layout_warnings = repair_layout_geometry(design)
         warnings.extend(final_layout_warnings)
         warnings = list(dict.fromkeys(warnings))
         design["quality"] = design_quality_summary(design)
-        return jsonify({"ok": True, "model": MODEL, "image_model": IMAGE_MODEL, "design": design, "critique": raw.get("critique", {}), "warnings": warnings, "imagery_required": imagery_required, "density": design_density_summary(design), "duration_ms": int((time.perf_counter() - started) * 1000)})
+        design["generation_preferences"] = preferences
+        return jsonify({"ok": True, "model": MODEL, "image_model": IMAGE_MODEL, "design": design, "critique": raw.get("critique", {}), "warnings": warnings, "imagery_required": imagery_required, "density": design_density_summary(design), "preferences": preferences, "duration_ms": int((time.perf_counter() - started) * 1000)})
     except Exception as exc:
         return jsonify({"ok": False, "message": str(exc)}), 502
 
@@ -1576,14 +1730,14 @@ def health():
         "stock_fallback": STOCK_FALLBACK_ENABLED,
         "auto_polish_sparse": AUTO_POLISH_SPARSE,
         "minimum_first_pass_layers": MIN_FIRST_PASS_LAYERS,
-        "editor_contract": "v5.1-quality-preflight",
+        "editor_contract": "v5.2-preferences-density-dedupe",
         "image_pipeline": "gemini-image -> relevance-ranked Openverse + Gemini vision rerank -> local placeholder",
         "gemini_configured": bool(API_KEY),
         "sdk_installed": genai is not None,
         "structured_output": "json-mime/no-response-schema",
         "thinking_budget": 0,
         "reconstruction": "source-aspect + editable text/shapes + source image crops",
-        "design_brain": "professional-art-director-v5.1",
+        "design_brain": "professional-art-director-v5.2",
         "advanced_shapes": True,
         "generated_image_assets": True,
         "image_compositing": True,

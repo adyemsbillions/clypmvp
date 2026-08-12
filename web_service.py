@@ -36,7 +36,7 @@ AI_ENDPOINT = os.getenv("CLYP_AI_ENDPOINT", "http://127.0.0.1:8100").rstrip("/")
 INTERNAL_TOKEN = os.getenv("CLYP_AI_INTERNAL_TOKEN", "change-me")
 APP_URL = os.getenv("CLYP_APP_URL", "http://127.0.0.1:8080")
 OPENVERSE = "https://api.openverse.org/v1/images/"
-UA = "Clyp-Local-Design-Studio/5.1"
+UA = "Clyp-Local-Design-Studio/5.2"
 
 
 def proxy_ai(route: str, timeout: int = 180):

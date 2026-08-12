@@ -8,7 +8,7 @@
   ];
   const missing = requiredIds.filter(id => !$(id));
   if (missing.length) {
-    document.body.innerHTML = `<main style="max-width:720px;margin:8vh auto;padding:28px;font-family:Inter,system-ui;background:#fff;border:1px solid #ddd;border-radius:18px"><h1>Clyp editor could not start</h1><p>The build is missing required editor controls: <b>${missing.join(', ')}</b>.</p><p>Use the complete V5.1 project so editor.html and editor.js stay in sync.</p></main>`;
+    document.body.innerHTML = `<main style="max-width:720px;margin:8vh auto;padding:28px;font-family:Inter,system-ui;background:#fff;border:1px solid #ddd;border-radius:18px"><h1>Clyp editor could not start</h1><p>The build is missing required editor controls: <b>${missing.join(', ')}</b>.</p><p>Use the complete V5.2 project so editor.html and editor.js stay in sync.</p></main>`;
     throw new Error(`Clyp editor DOM mismatch: ${missing.join(', ')}`);
   }
 
@@ -200,7 +200,7 @@
   }
   function adaptDesign(d){
     if(!d || typeof d !== 'object') return defaultDesign();
-    const layers=Array.isArray(d.layers)?d.layers.filter(Boolean).map(layer=>{
+    let layers=Array.isArray(d.layers)?d.layers.filter(Boolean).map(layer=>{
       if(!layer || layer.type!=='image' || !layer.src) return layer;
       const copy={...layer};
       // Online assets are served back through Clyp's same-origin image proxy. This
@@ -209,9 +209,12 @@
       copy.src=localAssetUrl(copy.src);
       return copy;
     }):[];
+    // V5.2 also heals older saved projects that contain duplicate metadata icons.
+    const metadataIcons=new Set(['calendar','clock','map-pin','phone','mail','globe']),seenMeta=new Set();
+    layers=layers.filter(layer=>{if(layer?.type!=='icon'||!metadataIcons.has(layer.icon))return true;if(seenMeta.has(layer.icon))return false;seenMeta.add(layer.icon);return true;});
     return {
       id:d.id ?? null,name:d.name || 'Untitled design',format:d.format || '1080 × 1350',created_at:d.created_at,updated_at:d.updated_at,
-      source:d.source || null,assets:(d.assets && typeof d.assets === 'object') ? d.assets : {},palette:(d.palette && typeof d.palette === 'object') ? d.palette : {},quality:(d.quality && typeof d.quality === 'object') ? d.quality : {},
+      source:d.source || null,assets:(d.assets && typeof d.assets === 'object') ? d.assets : {},palette:(d.palette && typeof d.palette === 'object') ? d.palette : {},quality:(d.quality && typeof d.quality === 'object') ? d.quality : {},generation_preferences:(d.generation_preferences && typeof d.generation_preferences === 'object') ? d.generation_preferences : {},
       canvas:{width:Number(d.canvas?.width)||432,height:Number(d.canvas?.height)||540,bg:d.canvas?.bg||'#1f2445'},layers
     };
   }
@@ -480,14 +483,11 @@
     const urls=['https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js','https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js'];
     let last;
     for(const src of urls){
-      try{
-        await new Promise((resolve,reject)=>{const script=document.createElement('script');script.src=src;script.async=true;script.crossOrigin='anonymous';script.onload=resolve;script.onerror=()=>reject(new Error('Could not load PNG renderer'));document.head.appendChild(script);});
-        if(window.html2canvas)return window.html2canvas;
-      }catch(err){last=err;}
+      try{await new Promise((resolve,reject)=>{const script=document.createElement('script');script.src=src;script.async=true;script.crossOrigin='anonymous';script.onload=resolve;script.onerror=()=>reject(new Error('Could not load export renderer'));document.head.appendChild(script);});if(window.html2canvas)return window.html2canvas;}catch(err){last=err;}
     }
-    throw last||new Error('PNG export renderer could not be loaded. Check your internet connection and retry.');
+    throw last||new Error('Export renderer could not be loaded. Check your internet connection and retry.');
   }
-  async function exportPng(){
+  async function exportRaster(kind='png'){
     save(false);
     const btn=$('exportBtn'),oldText=btn.textContent;btn.disabled=true;btn.innerHTML='<span class="mini-spinner"></span> Exporting';
     const oldTransform=canvas.style.transform,oldOrigin=canvas.style.transformOrigin;
@@ -497,17 +497,27 @@
       const html2canvas=await ensureExportRenderer();
       canvas.classList.add('exporting');canvas.style.transform='none';canvas.style.transformOrigin='top left';
       await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
-      const targetW=targetExportWidth();const scale=Math.max(1,targetW/design.canvas.width);
+      const targetW=targetExportWidth(),scale=Math.max(1,targetW/design.canvas.width);
       const rendered=await html2canvas(canvas,{backgroundColor:design.canvas.bg||null,scale,useCORS:true,allowTaint:false,logging:false,width:design.canvas.width,height:design.canvas.height,windowWidth:design.canvas.width,windowHeight:design.canvas.height,scrollX:0,scrollY:0});
-      const blob=await new Promise((resolve,reject)=>rendered.toBlob(b=>b?resolve(b):reject(new Error('Browser could not create the PNG.')),'image/png'));
-      const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=safeFileName('png');document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),1200);
-      showToast(`PNG exported at ${rendered.width} × ${rendered.height}`,4200);
-    }catch(err){showToast(`PNG export failed: ${err.message}`,6500);}
+      const mime=kind==='jpg'?'image/jpeg':'image/png',quality=kind==='jpg'?.92:undefined;
+      const blob=await new Promise((resolve,reject)=>rendered.toBlob(b=>b?resolve(b):reject(new Error(`Browser could not create the ${kind.toUpperCase()}.`)),mime,quality));
+      const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=safeFileName(kind);document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),1200);
+      showToast(`${kind.toUpperCase()} exported at ${rendered.width} × ${rendered.height}`,4200);
+    }catch(err){showToast(`${kind.toUpperCase()} export failed: ${err.message}`,6500);}
     finally{canvas.classList.remove('exporting');canvas.style.transform=oldTransform;canvas.style.transformOrigin=oldOrigin;btn.disabled=false;btn.textContent=oldText||'Export PNG';}
   }
-  function exportProjectJson(){save(false);const payload=JSON.stringify(design,null,2);const blob=new Blob([payload],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=safeFileName('clyp.json');a.click();setTimeout(()=>URL.revokeObjectURL(a.href),500);showToast('Editable project backup exported');}
+  function exportPng(){return exportRaster('png');}
+  function exportJpg(){return exportRaster('jpg');}
+  function exportProjectJson(){save(false);const payload=JSON.stringify(design,null,2);const blob=new Blob([payload],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=safeFileName('json');a.click();setTimeout(()=>URL.revokeObjectURL(a.href),500);showToast('Editable project backup exported');}
   $('exportBtn').onclick=exportPng;
   $('exportBtn').title='Export PNG image';
+  const exportMenu=$('exportMenu'),exportMore=$('exportMoreBtn');
+  if(exportMenu&&exportMore){
+    const setMenu=open=>{exportMenu.hidden=!open;exportMore.setAttribute('aria-expanded',open?'true':'false');};
+    exportMore.onclick=e=>{e.stopPropagation();setMenu(exportMenu.hidden);};
+    exportMenu.querySelectorAll('[data-export]').forEach(btn=>btn.onclick=()=>{setMenu(false);const kind=btn.dataset.export;if(kind==='png')exportPng();else if(kind==='jpg')exportJpg();else exportProjectJson();});
+    document.addEventListener('pointerdown',e=>{if(!$('exportControl')?.contains(e.target))setMenu(false);});
+  }
 
   // Zoom is relative to the 75% base visual scale used by the editor.
   function setZoom(pct){viewScale=pct/75;canvas.style.transform=`scale(${viewScale})`;canvas.style.transformOrigin='top center';$('zoomValue').textContent=pct+'%';}
@@ -591,6 +601,7 @@
     return `<div class="panel-heading"><span>Text & fonts</span><small>${Object.values(FONT_CATALOG).flat().length} typefaces</small></div>
       <div class="text-add-grid"><button class="tool-tile" id="addHeading"><b class="text-sample heading">Aa</b><span>Display heading</span></button><button class="tool-tile" id="addSubheading"><b class="text-sample">Aa</b><span>Subheading</span></button><button class="tool-tile" id="addBody"><b class="text-sample body">Aa</b><span>Body / details</span></button></div>
       <div class="font-pairings"><h4>Professional pairings</h4>${pairings.map((p,i)=>`<button class="font-pair" data-pair="${i}"><strong>${escapeHtml(p[0])}</strong><small>${escapeHtml(p[1])} + ${escapeHtml(p[2])}</small></button>`).join('')}</div>
+      <div class="font-global-actions"><button id="applyFontHeadings">Apply selected font to headings</button><button id="applyFontBody">Apply selected font to body/details</button></div>
       <div class="font-library-head"><div><h4>Font library</h4><small>Hover to preview · click to apply</small></div><input id="fontSearch" placeholder="Search fonts…" autocomplete="off"></div>
       <div id="fontLibrary" class="font-library">${fontLibraryMarkup('')}</div>`;
   }
@@ -613,7 +624,7 @@
   function showPanel(type){
     currentPanel=type;document.querySelectorAll('.tool-tab').forEach(b=>b.classList.toggle('active',b.dataset.panel===type));
     const content={
-      templates:`<div class="panel-heading"><span>Templates</span><small>Start polished</small></div><button class="tool-tile featured" onclick="location.href='templates.html'"><span>Browse template library</span><b>→</b></button><div class="asset-intro"><strong>Design density V5.1</strong><p>Generated flyers are now checked for visual depth and meaningful layer density before Clyp returns them.</p></div>`,
+      templates:`<div class="panel-heading"><span>Templates</span><small>Start polished</small></div><button class="tool-tile featured" onclick="location.href='templates.html'"><span>Browse template library</span><b>→</b></button><div class="asset-intro"><strong>Design density V5.2</strong><p>Generated flyers are now checked for visual depth and meaningful layer density before Clyp returns them.</p></div>`,
       elements:renderElementPanel(),text:renderTextPanel(),colors:renderColourPanel(),uploads:localImagePanel()
     }[type] || '';
     panel.innerHTML=content;
@@ -627,6 +638,9 @@
       $('addBody').onclick=()=>addLayer({type:'text',name:'Body text',x:50,y:260,w:310,h:65,text:'Add supporting information here.',size:15,weight:500,color:isDark(design.canvas.bg)?(design.palette?.light||'#ffffff'):(design.palette?.dark||'#333333'),font:'Inter',line:1.25});
       const pairings=[['Bebas Neue','Manrope'],['Oswald','Inter'],['League Spartan','Plus Jakarta Sans'],['Playfair Display','Manrope'],['DM Serif Display','Inter'],['Bodoni Moda','DM Sans'],['Space Grotesk','Inter'],['Barlow Condensed','Manrope'],['Archivo Black','DM Sans']];
       panel.querySelectorAll('[data-pair]').forEach(btn=>btn.onclick=()=>{const [display,support]=pairings[Number(btn.dataset.pair)];ensureFontLoaded(display);ensureFontLoaded(support);if(selected!==null&&design.layers[selected]?.type==='text'){snapshot();design.layers[selected].font=display;applyLayerStyle(elementFor(selected),design.layers[selected]);renderProps();markDirty();scheduleSave();showToast(`${display} applied. ${support} is ready for supporting copy.`);}else showToast(`${display} + ${support} loaded. Select a text layer or choose a font below.`);});
+      const applyFontGroup=kind=>{const chosen=(selected!==null&&design.layers[selected]?.type==='text'?design.layers[selected].font:null)||$('propFont')?.value||'Inter';ensureFontLoaded(chosen);snapshot();let count=0;design.layers.forEach(l=>{if(l.type!=='text')return;const n=String(l.name||'').toLowerCase(),isHeading=/headline|title|kicker|heading/.test(n)||Number(l.size||0)>=28;const matches=kind==='heading'?isHeading:!isHeading;if(matches){l.font=chosen;count++;}});renderCanvas();renderLayers();renderProps();markDirty();scheduleSave();showToast(`${chosen} applied to ${count} ${kind==='heading'?'heading':'body/detail'} layer${count===1?'':'s'}`);};
+      $('applyFontHeadings').onclick=()=>applyFontGroup('heading');
+      $('applyFontBody').onclick=()=>applyFontGroup('body');
       wireFontLibrary();
       $('fontSearch').addEventListener('input',e=>{$('fontLibrary').innerHTML=fontLibraryMarkup(e.target.value);wireFontLibrary();});
     }

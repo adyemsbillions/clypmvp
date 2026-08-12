@@ -202,11 +202,11 @@ Example E — image-free corporate announcement:
 - generous spacing, controlled two-colour palette, crisp alignment, one accent line/block
 """
 
-# V5.1 adds explicit preflight rules that are intentionally separate from the broad
+# V5.2 adds explicit preflight rules that are intentionally separate from the broad
 # playbook above so they can be strengthened without making every category look alike.
 DESIGN_PLAYBOOK += r"""
 
-## 15. V5.1 PRE-FLIGHT — NO COLLISIONS, NO UNFINISHED FOOTERS
+## 15. V5.2 PRE-FLIGHT — NO COLLISIONS, NO UNFINISHED FOOTERS
 - No two independent text layers may visibly overlap. A headline can contain its own line breaks inside one text layer; separate text boxes must keep deliberate breathing room.
 - Reserve a real footer/bottom-safe zone. CTA and phone/contact must never land on top of one another or touch the canvas edge.
 - Estimate the rendered height of every text block before placing the next block. Long supporting lines need enough width/height or an intentional extra line.
@@ -243,4 +243,56 @@ Example F — worship brief with exact service information:
 - Details form one compact lower information system rather than floating lines: date label/value, time label/value, venue label/value.
 - CTA and contact use their own final zone with at least 8 units between them and at least 18 units from the bottom edge.
 - One dark readability gradient, one warm accent light and one thin rule are usually enough atmospheric/graphic support.
+"""
+
+# ---------------------------------------------------------------------------
+# CLYP V5.2 — USER-STEERABLE ART DIRECTION
+# ---------------------------------------------------------------------------
+DESIGN_PLAYBOOK += r"""
+
+## 18. USER DESIGN PREFERENCES ARE HARD CONSTRAINTS
+When generation context includes Design Preferences, treat them as art-direction constraints rather than loose suggestions.
+- VISUAL MOOD: bright, dark, balanced or soft controls the overall value structure. A bright design is not merely a dark design with a bright accent.
+- IMAGERY MODE: photo, illustration, both, or none. If none, do not sneak in an image layer. If photo/illustration/both, the visual anchor is required and must be category-relevant.
+- IMAGE SUBJECT: people, objects/products, abstract or mixed should materially affect the hero asset.
+- COLOUR STYLE: bold, premium, clean or corporate controls saturation, contrast and colour count while preserving accessibility.
+- DENSITY: minimal, standard or rich controls the number of purposeful visual roles, not arbitrary decoration.
+- PROFESSIONAL ENHANCEMENTS OFF means no gratuitous glow, texture, pattern or decorative geometry; preserve only necessary structure/readability.
+
+## 19. TECHNOLOGY EVENT ART DIRECTION
+A technology event should rarely default to a plain dark rectangle plus typography when imagery is enabled.
+Choose one coherent direction:
+A) PEOPLE-LED: modern professionals/founders/developers networking, collaborating, presenting or attending a summit; clear contemporary environment and useful copy space.
+B) ILLUSTRATION-LED: sophisticated digital/network/data/AI illustration with depth, geometry and negative space; never childish clip-art.
+C) HYBRID: one human/venue photo plus editable grid, nodes, signal lines, glass/data surfaces or luminous geometric accents.
+D) IMAGE-FREE PREMIUM: only when imagery is disabled; compensate with excellent typographic scale, asymmetric grid, crisp geometry, restrained pattern and one disciplined accent.
+Avoid generic hacker imagery, random circuit boards, neon overload, unrelated close-ups of keyboards or microphones, and sci-fi decoration that does not support the event.
+
+## 20. INFORMATION ICON HYGIENE
+Practical metadata icons are functional. One date group normally needs one calendar icon; one time group one clock; one venue group one map pin; one contact group one phone/mail/web icon as appropriate.
+Never duplicate the same semantic icon below or beside the same information simply to add visual density.
+
+## 21. DENSITY IS A COMPOSITION DECISION
+- MINIMAL: roughly 6-12 purposeful layers. Strong typography and one or two structural accents. Whitespace must be clearly composed.
+- STANDARD: roughly 12-22 purposeful layers. One visual anchor, grouped information, CTA, and enough depth to feel finished.
+- RICH: roughly 18-32 purposeful layers. Add layered depth, motifs, atmospheric treatment and supporting visual rhythm, while keeping one focal point and eliminating filler.
+"""
+
+FEW_SHOT_PATTERNS += r"""
+
+Example G — tech summit, dark + both + rich:
+- full/partial-bleed photo of founders or tech professionals in a real innovation/conference setting, subject positioned away from copy
+- deep graphite/navy field, electric cyan or blue-violet accent, off-white copy
+- huge modern/condensed FUTURE FORWARD-style headline with smaller summit identity
+- subtle editable grid/node/signal motif over a low-opacity zone, not over faces
+- compact date/time/venue module using one calendar, one clock, one location icon only
+- bright CTA surface or outlined registration module
+- one restrained edge glow/gradient to connect the image and geometry
+- 18-28 layers is reasonable, but every layer must serve grouping, depth, readability, rhythm or emphasis
+
+Example H — tech summit, bright + illustration + standard:
+- light/off-white field with one sophisticated digital innovation illustration occupying 35-50% of canvas
+- dark navy/charcoal headline, vivid cyan/cobalt accent, one softer supporting hue
+- crisp asymmetric grid, thin data/network lines, compact event details and CTA
+- no photography, no dark nightclub treatment, no duplicate metadata icons
 """
