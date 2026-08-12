@@ -1,0 +1,14 @@
+CLYP GEMINI SCHEMA FIX
+
+1. Stop Clyp with Ctrl+C.
+2. Copy ai_service.py into your Clyp project root, replacing the existing file.
+3. Copy js/dashboard.js into your project's js folder, replacing the existing file.
+4. Start again with:
+   py start_local.py
+5. Open http://127.0.0.1:8100/health
+   It should include:
+   "structured_output": "json-mime/no-response-schema"
+   "thinking_budget": 0
+6. Open http://127.0.0.1:8080 and try Create with AI again.
+
+You do not need to run setup_local.py again.
